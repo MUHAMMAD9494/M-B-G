@@ -1,4 +1,4 @@
-﻿# NEXORA SMART EDU (V1)
+# NEXORA SMART EDU (V1)
 
 ## Teacher Attendance SaaS Platform
 

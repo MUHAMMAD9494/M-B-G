@@ -1,0 +1,21 @@
+{
+  "name": "nexora-smart-edu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nexora Smart Edu (NSE) — multi-tenant teacher attendance & workforce management platform.",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @nexora/api --filter @nexora/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @nexora/api test:e2e",
+    "db:migrate": "pnpm --filter @nexora/api db:migrate",
+    "db:migrate:revert": "pnpm --filter @nexora/api db:migrate:revert",
+    "db:seed": "pnpm --filter @nexora/api db:seed"
+  }
+}

@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --nse-background: #ffffff;
+  --nse-surface: #fafaf8;
+  --nse-text: #1c1917;
+  --nse-text-secondary: #78716c;
+  --nse-border: #e7e5e4;
+  --nse-accent: #1d4ed8;
+  --nse-accent-hover: #1e40af;
+  --nse-success: #15803d;
+  --nse-warning: #b45309;
+  --nse-danger: #b91c1c;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-white font-sans text-stone-900 antialiased;
+  }
+  ::selection {
+    background-color: #1d4ed8;
+    color: #ffffff;
+  }
+}
+
+@layer components {
+  .caps-label {
+    @apply text-xs font-medium uppercase tracking-wider text-stone-500;
+  }
+}

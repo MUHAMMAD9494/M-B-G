@@ -32,3 +32,8 @@ Thumbs.db
 # Docker / tmp
 *.pid
 *.sock
+# Database backups — never commit dumps
+infrastructure/backups/output/
+infrastructure/backups/archive/
+# Phantom/malformed filenames
+ql.gz*

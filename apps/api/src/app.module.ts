@@ -20,6 +20,8 @@ import { ReportsModule } from './reports/reports.module';
 import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
+import { DataSubjectModule } from './data-subject/data-subject.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RequestLoggingInterceptor } from './common/request-logging.interceptor';
@@ -27,13 +29,15 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, load: [loadConfiguration] }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env', '.env'], load: [loadConfiguration] }),
     TypeOrmModule.forRootAsync({
       useFactory: () => {
         const cfg = loadConfiguration();
         return {
           type: 'postgres' as const,
-          url: cfg.databaseUrl,
+          // Runtime connection uses the non-owner role when provided (production)
+          // so the application can never bypass RLS as the table owner.
+          url: cfg.appDatabaseUrl ?? cfg.databaseUrl,
           entities,
           synchronize: false,
           logging: cfg.nodeEnv === 'development' ? ['error', 'warn'] : ['error'],
@@ -68,6 +72,8 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
     SettingsModule,
     HealthModule,
     NotificationsModule,
+    OnboardingModule,
+    DataSubjectModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -1,0 +1,31 @@
+# NEXORA production compose (reference) — run behind Cloudflare (TLS at the edge).
+# Managed PostgreSQL is expected at DATABASE_URL; migrations are NOT auto-run
+# (see docs/deployment.md — human-approved release step).
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/deploy/Dockerfile.api
+    restart: unless-stopped
+    env_file: ../../.env.production
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+    ports:
+      - "127.0.0.1:4000:4000"   # reverse-proxy only; never expose publicly
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/deploy/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: https://api.nexora.example/api/v1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"   # reverse-proxy only
+    depends_on:
+      - api

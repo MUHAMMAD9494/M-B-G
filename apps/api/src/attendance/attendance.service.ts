@@ -177,6 +177,10 @@ export class AttendanceService {
       offlineCreated: false,
       syncStatus: SyncStatus.SYNCED,
       verificationMethod: dto.verificationMethod ?? 'gps_geofence',
+      // Online path: liveness ran server-side, so the identity claim is
+      // verified online; defer only if the client explicitly reports it.
+      verificationState:
+        dto.verificationMethod === 'gps_offline_deferred' ? 'pending_verification' : 'verified_online',
       riskScore: record.riskScore,
     });
     await this.events.save(event);
@@ -205,6 +209,24 @@ export class AttendanceService {
 
     for (const evt of dto.events) {
       const eventTime = new Date(evt.timestamp);
+
+      // Idempotency: a replayed event with the same (school, client_event_id)
+      // must never create a duplicate. The DB unique index is the backstop;
+      // this lookup keeps the response honest (DEDUPLICATED, not CONFLICT).
+      if (evt.localEventId) {
+        const existing = await this.events.findOne({
+          where: { schoolId: actor.schoolId!, clientEventId: evt.localEventId },
+        });
+        if (existing) {
+          results.push({
+            localEventId: evt.localEventId,
+            status: 'DEDUPLICATED',
+            recordId: existing.recordId,
+          });
+          continue;
+        }
+      }
+
       if (isNaN(eventTime.getTime()) || eventTime < cutoff) {
         results.push({ localEventId: evt.localEventId, status: 'REJECTED', reason: 'Invalid or expired timestamp.' });
         continue;
@@ -272,10 +294,28 @@ export class AttendanceService {
         recordId: savedRecord.id, attendanceType: evt.attendanceType,
         timestamp: eventTime, serverTimestamp: new Date(),
         latitude: evt.latitude, longitude: evt.longitude, accuracy: evt.accuracy,
-        geofenceStatus: geoStatus, identityVerificationStatus: VerificationStatus.PASSED,
-        livenessStatus: 'NOT_CHECKED', deviceId: evt.deviceId ?? null,
+        geofenceStatus: geoStatus,
+        // Honest verification semantics: offline events are GPS-verified
+        // locally; identity/liveness verification is pending, never PASSED.
+        identityVerificationStatus:
+          evt.verificationMethod === 'gps_offline_deferred' || evt.verificationMethod === 'offline_sync'
+            ? VerificationStatus.PENDING
+            : VerificationStatus.PASSED,
+        livenessStatus:
+          evt.verificationMethod === 'gps_offline_deferred' || evt.verificationMethod === 'offline_sync'
+            ? 'DEFERRED'
+            : 'NOT_CHECKED',
+        deviceId: evt.deviceId ?? null,
         offlineCreated: true, syncStatus: SyncStatus.SYNCED,
-        verificationMethod: evt.verificationMethod ?? 'offline_sync', riskScore: record.riskScore,
+        verificationMethod: evt.verificationMethod ?? 'offline_sync',
+        // Auditable verification state: offline events carry GPS checked
+        // locally; identity/liveness verification is pending by definition.
+        verificationState:
+          evt.verificationMethod === 'gps_offline_deferred' || evt.verificationMethod === 'offline_sync'
+            ? 'pending_verification'
+            : 'verified_local',
+        clientEventId: evt.localEventId ?? null,
+        riskScore: record.riskScore,
       });
       await this.events.save(event);
 

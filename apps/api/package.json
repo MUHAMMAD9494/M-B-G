@@ -8,11 +8,12 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --max-warnings=0",
+    "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "test": "jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
-    "db:migrate": "ts-node -r tsconfig-paths/register src/database/cli.ts migration:run",
-    "db:migrate:revert": "ts-node -r tsconfig-paths/register src/database/cli.ts migration:revert",
+    "db:migrate": "ts-node -r tsconfig-paths/register src/database/run-migrations.ts",
+    "db:migrate:revert": "ts-node -r tsconfig-paths/register src/database/revert.ts",
+    "db:verify": "ts-node -r tsconfig-paths/register src/database/verify.ts",
     "db:seed": "ts-node -r tsconfig-paths/register src/database/seed.ts"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService } from './reports.service';
@@ -40,7 +40,7 @@ export class ReportsController {
   @Get('teacher/:teacherId/history')
   @Permissions('reports.read')
   @ApiOperation({ summary: 'Teacher attendance history' })
-  async teacherHistory(@CurrentUser() actor: AuthUser, @Query('teacherId') teacherId: string) {
+  async teacherHistory(@CurrentUser() actor: AuthUser, @Param('teacherId') teacherId: string) {
     return this.reports.teacherHistory(actor, teacherId);
   }
 

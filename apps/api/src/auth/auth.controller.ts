@@ -9,27 +9,30 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser } from '@nexora/types';
 
 const isProd = process.env.NODE_ENV === 'production';
+const cookieDomain = process.env.COOKIE_DOMAIN?.trim() || undefined;
+
+const cookieBase = {
+  httpOnly: true as const,
+  secure: isProd,
+  sameSite: 'lax' as const,
+  path: '/',
+  domain: cookieDomain,
+};
 
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
   res.cookie('nse_access', accessToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
+    ...cookieBase,
     maxAge: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10) * 1000,
-    path: '/',
   });
   res.cookie('nse_refresh', refreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
+    ...cookieBase,
     maxAge: parseInt(process.env.JWT_REFRESH_TTL ?? '604800', 10) * 1000,
-    path: '/',
   });
 }
 
 function clearAuthCookies(res: Response): void {
-  res.cookie('nse_access', '', { httpOnly: true, sameSite: 'lax', maxAge: 0, path: '/' });
-  res.cookie('nse_refresh', '', { httpOnly: true, sameSite: 'lax', maxAge: 0, path: '/' });
+  res.cookie('nse_access', '', { ...cookieBase, maxAge: 0 });
+  res.cookie('nse_refresh', '', { ...cookieBase, maxAge: 0 });
 }
 
 @ApiTags('auth')

@@ -1,55 +1,44 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createHash } from 'crypto';
 import { BiometricProfile } from '../entities/biometric-profile.entity';
 import { AuditService } from '../audit/audit.service';
 import { AppException } from '../common/app-exception';
 import { ErrorCodes } from '../common/error-codes';
+import { loadConfiguration } from '../config/configuration';
 import { AuthUser } from '@nexora/types';
-
-/**
- * BiometricProvider interface — V1 ships a dev-only adapter that uses SHA-256
- * hashes as pseudo-embeddings. This is NOT production biometric verification.
- * The interface is designed so InsightFace, ONNX, or any real engine can be
- * swapped in without changing the attendance flow.
- */
-export interface BiometricProvider {
-  enroll(imageData: string): Promise<string>; // returns embedding hash
-  verify(embeddingHash: string, imageData: string): Promise<boolean>;
-  livenessCheck(challenge: string, response: string): Promise<boolean>;
-  deleteEnrollment(embeddingHash: string): Promise<void>;
-}
-
-/**
- * DevBiometricProvider — clearly labeled as development-only.
- * Uses SHA-256 of the image data as a "pseudo-embedding". Never use in
- * production for actual identity verification.
- */
-export class DevBiometricProvider implements BiometricProvider {
-  async enroll(imageData: string): Promise<string> {
-    return createHash('sha256').update(`dev-enroll:${imageData}`).digest('hex');
-  }
-  async verify(embeddingHash: string, imageData: string): Promise<boolean> {
-    const hash = createHash('sha256').update(`dev-enroll:${imageData}`).digest('hex');
-    return hash === embeddingHash;
-  }
-  async livenessCheck(_challenge: string, _response: string): Promise<boolean> {
-    return true; // Dev mode always passes.
-  }
-  async deleteEnrollment(_embeddingHash: string): Promise<void> {}
-}
+import {
+  BiometricProvider,
+  DevBiometricProvider,
+  generateLivenessChallenge,
+  LivenessChallenge,
+  LivenessResult,
+} from './providers/biometric.provider';
 
 @Injectable()
 export class BiometricService {
   private provider: BiometricProvider;
+  private readonly providerType: string;
 
   constructor(
     @InjectRepository(BiometricProfile)
     private readonly profiles: Repository<BiometricProfile>,
     private readonly audit: AuditService,
   ) {
+    // Hard production gate: the dev adapter (SHA-256 "pseudo-embedding",
+    // liveness always passes) must NEVER run in production. A real provider
+    // (InsightFace/ONNX/cloud/device-based) must be configured explicitly;
+    // until one exists, production refuses to boot rather than silently
+    // presenting dev verification as identity.
+    const cfg = loadConfiguration();
+    if (cfg.nodeEnv === 'production') {
+      throw new Error(
+        'No production biometric provider is configured. ' +
+          'BIOMETRIC_PROVIDER must point to a real verification engine; the dev adapter is blocked in production.',
+      );
+    }
     this.provider = new DevBiometricProvider();
+    this.providerType = cfg.biometricProvider;
   }
 
   async enroll(actor: AuthUser, teacherId: string, imageData: string, meta: { ip: string | null; userAgent: string | null }) {
@@ -57,7 +46,7 @@ export class BiometricService {
     const profile = this.profiles.create({
       schoolId: actor.schoolId!,
       teacherId,
-      providerType: 'dev',
+      providerType: this.providerType,
       embeddingHash: embedding,
       status: 'ACTIVE',
       enrolledBy: actor.id,
@@ -78,10 +67,28 @@ export class BiometricService {
     return { verified: ok, reason: ok ? null : 'Verification failed.' };
   }
 
+  /** Issue a randomized liveness micro-challenge (anti-spoofing). */
+  async livenessChallenge(): Promise<LivenessChallenge> {
+    return generateLivenessChallenge();
+  }
+
+  /** Run a liveness check against an issued challenge + client response. */
+  async livenessCheck(challenge: LivenessChallenge, response: string): Promise<LivenessResult> {
+    return this.provider.livenessCheck(challenge, response);
+  }
+
   async list(actor: AuthUser) {
     const qb = this.profiles.createQueryBuilder('p').orderBy('p.createdAt', 'DESC');
     if (actor.schoolId) qb.andWhere('p.schoolId = :sid', { sid: actor.schoolId });
-    return qb.getMany();
+    const rows = await qb.getMany();
+    // Never expose embedding hashes/templates through ordinary API responses.
+    return rows.map((p) => ({
+      id: p.id,
+      teacherId: p.teacherId,
+      providerType: p.providerType,
+      status: p.status,
+      createdAt: p.createdAt,
+    }));
   }
 
   async delete(actor: AuthUser, id: string, meta: { ip: string | null; userAgent: string | null }) {

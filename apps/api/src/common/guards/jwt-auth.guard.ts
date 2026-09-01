@@ -1,8 +1,10 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { TokenService, AccessTokenPayload } from '../../auth/token.service';
 import { IS_PUBLIC_KEY } from '../public.decorator';
-import { AuthUser } from '@nexora/types';
+import { AuthUser, UserStatus } from '@nexora/types';
 
 /**
  * Global JWT guard. Reads the access token from the HTTP-only cookie or the
@@ -14,6 +16,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly tokens: TokenService,
     private readonly reflector: Reflector,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,6 +42,23 @@ export class JwtAuthGuard implements CanActivate {
     if (payload.type !== 'access') {
       throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Invalid token type.' });
     }
+
+    // Staleness re-validation against the DB: a disabled account, a demoted
+    // role, or a moved school loses access immediately (not after TTL).
+    const rows: { status: string; role: string; school_id: string | null }[] = await this.dataSource.query(
+      'SELECT status, role, school_id FROM users WHERE id = $1',
+      [payload.sub],
+    );
+    const row = rows[0];
+    if (
+      !row ||
+      row.status !== UserStatus.ACTIVE ||
+      row.role !== payload.role ||
+      (row.school_id ?? null) !== (payload.schoolId ?? null)
+    ) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Session expired. Please sign in again.' });
+    }
+
 
     request.user = {
       id: payload.sub,

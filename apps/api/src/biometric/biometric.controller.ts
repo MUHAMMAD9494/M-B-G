@@ -5,8 +5,9 @@ import { BiometricService } from './biometric.service';
 import { Permissions } from '../common/permissions.decorator';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser } from '@nexora/types';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength, IsIn } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { LivenessChallenge } from './providers/biometric.provider';
 
 class EnrollDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(100000) teacherId: string;
@@ -15,6 +16,13 @@ class EnrollDto {
 
 class VerifyDto {
   @ApiProperty() @IsString() @IsNotEmpty() imageData: string;
+}
+
+class LivenessDto {
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(5000000) response: string;
+  @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(36) nonce: string;
+  @ApiProperty() @IsIn(['blink', 'turn-left', 'turn-right', 'smile']) kind: string;
+  @ApiProperty() @IsString() @IsNotEmpty() issuedAt: string;
 }
 
 @ApiTags('biometrics')
@@ -39,6 +47,23 @@ export class BiometricController {
   @ApiOperation({ summary: 'Verify identity against enrolled biometric (dev-only)' })
   async verify(@Param('teacherId', ParseUUIDPipe) teacherId: string, @Body() dto: VerifyDto) {
     return this.biometric.verify(teacherId, dto.imageData);
+  }
+
+  @Post('liveness/challenge')
+  @Permissions('attendance.create')
+  @ApiOperation({ summary: 'Issue a randomized liveness micro-challenge' })
+  async livenessChallenge(): Promise<LivenessChallenge> {
+    return this.biometric.livenessChallenge();
+  }
+
+  @Post('liveness/check')
+  @Permissions('attendance.create')
+  @ApiOperation({ summary: 'Submit a liveness response against a challenge' })
+  async livenessCheck(@Body() dto: LivenessDto) {
+    return this.biometric.livenessCheck(
+      { kind: dto.kind as LivenessChallenge['kind'], nonce: dto.nonce, issuedAt: dto.issuedAt },
+      dto.response,
+    );
   }
 
   @Get()

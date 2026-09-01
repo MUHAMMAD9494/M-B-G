@@ -18,8 +18,8 @@ async function hash(password: string): Promise<string> {
  * Requires DATABASE_URL env var or falls back to dev default.
  */
 async function seed() {
-  const url = process.env.DATABASE_URL ?? 'postgres://nexora:Nexora@2024!@localhost:5433/nexora';
-  const ds = new DataSource({
+  const url = process.env.DATABASE_URL ?? 'postgres://nexora:Nexora@2024!@localhost:5433/nexora_attendance';
+    const ds = new DataSource({
     type: 'postgres',
     url,
     entities: [School, Branch, User, Teacher, Geofence],
@@ -108,7 +108,7 @@ async function seed() {
   ];
 
   for (const td of teacherData) {
-    let existing = await teacherRepo.findOne({ where: { employeeId: td.employeeId, schoolId: school.id } });
+    const existing = await teacherRepo.findOne({ where: { employeeId: td.employeeId, schoolId: school.id } });
     if (!existing) {
       // Also create a user account for each teacher
       const email = td.email!;
@@ -174,11 +174,14 @@ async function seed() {
   `, [school.id]);
 
   await ds.destroy();
-  console.info('\nSeed completed successfully.');
-  console.info('\nDemo credentials:');
-  console.info('  Super Admin: super@nexora.dev / SuperAdmin@2024!');
-  console.info('  School Admin: admin@nexorademo.edu.ng / Admin@2024!');
-  console.info('  Teachers: ibrahim/fatima/ahmad/hauwa/musa@nexorademo.edu.ng / Teacher@2024!');
+    console.info('\nSeed completed successfully.');
+  if (process.env.NODE_ENV !== 'production') {
+    // Dev-only printout; never print credentials in production environments.
+    console.info('\nDemo credentials (dev only):');
+    console.info('  Super Admin: super@nexora.dev / SuperAdmin@2024!');
+    console.info('  School Admin: admin@nexorademo.edu.ng / Admin@2024!');
+    console.info('  Teachers: ibrahim/fatima/ahmad/hauwa/musa@nexorademo.edu.ng / Teacher@2024!');
+  }
 }
 
 seed().catch((err) => {

@@ -37,4 +37,21 @@ export class School extends BaseEntity {
   /** Minutes before expected check-out time that triggers an EARLY flag. */
   @Column({ name: 'early_departure_threshold_minutes', type: 'int', default: 30 })
   earlyDepartureThresholdMinutes: number;
+
+  /**
+   * Control-plane routing metadata (refs only — NEVER credentials or school
+   * attendance data). shared = platform-managed RLS-protected database;
+   * dedicated = this tenant has its own data-plane database/project.
+   */
+  @Column({ name: 'data_plane_type', type: 'varchar', length: 20, default: 'shared' })
+  dataPlaneType: string;
+
+  @Column({ name: 'data_plane_ref', type: 'varchar', length: 255, nullable: true })
+  dataPlaneRef: string | null;
+
+  @Column({ name: 'data_plane_config_ref', type: 'varchar', length: 255, nullable: true })
+  dataPlaneConfigRef: string | null;
+
+  @Column({ name: 'data_plane_status', type: 'varchar', length: 20, default: 'provisioned' })
+  dataPlaneStatus: string;
 }

@@ -35,7 +35,7 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, meta: RequestMeta): Promise<{ user: AuthUser; accessToken: string; expiresIn: number; refreshToken: string }> {
-    const user = await this.users.findOne({ where: { email: dto.email.toLowerCase() } });
+    const user = await this.findUserForAuth(dto.email);
     if (!user) {
       throw new AppException(ErrorCodes.INVALID_CREDENTIALS, 'Incorrect email or password.', HttpStatus.UNAUTHORIZED);
     }
@@ -86,8 +86,32 @@ export class AuthService {
       throw new AppException(ErrorCodes.UNAUTHORIZED, 'Refresh token missing.', HttpStatus.UNAUTHORIZED);
     }
     const hash = this.tokens.hashToken(refreshToken);
-    const stored = await this.refreshTokens.findOne({ where: { tokenHash: hash } });
+    const stored = await this.findStoredRefreshToken(hash);
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+      throw new AppException(ErrorCodes.UNAUTHORIZED, 'Session expired. Please sign in again.', HttpStatus.UNAUTHORIZED);
+    }
+
+    // Reuse detection: a rotated token being presented again means the
+    // refresh-token family may be compromised. Revoke the whole family and
+    // audit before denying.
+    if (stored.replacedBy && stored.replacedBy !== 'rotated') {
+      // Already revoked family — plain denial.
+      throw new AppException(ErrorCodes.UNAUTHORIZED, 'Session expired. Please sign in again.', HttpStatus.UNAUTHORIZED);
+    }
+    if (stored.replacedBy === 'rotated') {
+      await this.refreshTokens.manager.query(
+        'SELECT app.revoke_refresh_tokens($1, $2, $3)',
+        [stored.userId, stored.id, 'family-revoked'],
+      );
+      await this.audit.record({
+        action: 'REFRESH_TOKEN_REUSE_DETECTED',
+        actorId: stored.userId,
+        schoolId: stored.schoolId,
+        entityType: 'refresh_token',
+        entityId: stored.id,
+        ipAddress: meta.ip,
+        userAgent: meta.userAgent,
+      });
       throw new AppException(ErrorCodes.UNAUTHORIZED, 'Session expired. Please sign in again.', HttpStatus.UNAUTHORIZED);
     }
 
@@ -97,15 +121,25 @@ export class AuthService {
     }
 
     // Rotation: revoke old, issue new.
-    await this.refreshTokens.update(stored.id, { revokedAt: new Date(), replacedBy: 'rotated' });
+    await this.refreshTokens.manager.query(
+      'SELECT app.revoke_refresh_token_by_hash($1, $2)',
+      [hash, 'rotated'],
+    );
     const pair = await this.issueTokens(user, meta);
     return { accessToken: pair.accessToken, refreshToken: pair.refreshToken, expiresIn: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10) };
   }
 
-  async logout(refreshToken: string | undefined, actor: AuthUser | null, meta: RequestMeta): Promise<void> {
+  async logout(
+    refreshToken: string | undefined,
+    actor: AuthUser | null,
+    meta: RequestMeta,
+  ): Promise<void> {
     if (refreshToken) {
       const hash = this.tokens.hashToken(refreshToken);
-      await this.refreshTokens.update({ tokenHash: hash }, { revokedAt: new Date() });
+      await this.refreshTokens.manager.query(
+        'SELECT app.revoke_refresh_token_by_hash($1, $2)',
+        [hash, 'logged-out'],
+      );
     }
     if (actor) {
       await this.audit.record({
@@ -136,7 +170,10 @@ export class AuthService {
     const hash = await this.password.hash(dto.newPassword);
     await this.users.update(user.id, { passwordHash: hash });
     // Revoke all sessions (force re-login everywhere).
-    await this.refreshTokens.createQueryBuilder().update().set({ revokedAt: new Date() }).where('user_id = :uid AND revoked_at IS NULL', { uid: user.id }).execute();
+    await this.refreshTokens.manager.query(
+      'SELECT app.revoke_refresh_tokens($1, NULL, $2)',
+      [user.id, 'password-changed'],
+    );
     await this.audit.record({
       action: 'PASSWORD_CHANGED',
       actorId: user.id,
@@ -146,6 +183,72 @@ export class AuthService {
       ipAddress: meta.ip,
       userAgent: meta.userAgent,
     });
+  }
+
+  /**
+   * Look up a refresh token via the SECURITY DEFINER gateway
+   * (app.find_refresh_token). Auth flows run before the tenant GUC is set,
+   * so direct repo reads against the FORCE-RLS table would be denied.
+   */
+  private async findStoredRefreshToken(hash: string): Promise<{
+    id: string;
+    userId: string;
+    schoolId: string | null;
+    tokenHash: string;
+    expiresAt: Date;
+    revokedAt: Date | null;
+    replacedBy: string | null;
+  } | null> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await this.refreshTokens.manager.query('SELECT * FROM app.find_refresh_token($1)', [hash]);
+    if (!rows.length) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      userId: r.user_id,
+      schoolId: r.school_id ?? null,
+      tokenHash: r.token_hash,
+      expiresAt: new Date(r.expires_at),
+      revokedAt: r.revoked_at ? new Date(r.revoked_at) : null,
+      replacedBy: r.replaced_by ?? null,
+    };
+  }
+
+  /**
+   * Locate a user for the login path. Prefers the SECURITY DEFINER lookup
+   * app.find_user_for_auth (shipped by migration V2) which is the only
+   * RLS-compatible way to search by email across tenants when the runtime
+   * connects as the least-privilege role; falls back to the repository for
+   * un-migrated local databases.
+   */
+  private async findUserForAuth(email: string): Promise<User | null> {
+    const normalized = email.toLowerCase();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows: any[] = await this.users.manager.query('SELECT * FROM app.find_user_for_auth($1)', [normalized]);
+      if (!rows.length) return null;
+      const r = rows[0];
+      return this.users.create({
+        id: r.id,
+        email: r.email,
+        phone: r.phone,
+        passwordHash: r.password_hash,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        role: r.role,
+        status: r.status,
+        schoolId: r.school_id,
+        branchId: r.branch_id ?? null,
+        failedLoginAttempts: r.failed_login_attempts ?? 0,
+        lockedUntil: r.locked_until ?? null,
+        lastLoginAt: r.last_login_at ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      } as Partial<User>);
+    } catch {
+      // Function not present yet (pre-V2 database) — repository fallback.
+      return this.users.findOne({ where: { email: normalized } });
+    }
   }
 
   private async issueTokens(user: User, meta: RequestMeta): Promise<TokenPair> {
@@ -162,14 +265,21 @@ export class AuthService {
       permissions,
     });
     const { token: refreshToken, hash } = this.tokens.generateRefreshToken();
-    await this.refreshTokens.insert({
-      userId: user.id,
-      schoolId: user.schoolId,
-      tokenHash: hash,
-      expiresAt: new Date(Date.now() + parseInt(process.env.JWT_REFRESH_TTL ?? '604800', 10) * 1000),
-      ipAddress: meta.ip,
-      userAgent: meta.userAgent,
-    });
+    // Auth flows run before the tenant GUC is set for the session, so
+    // refresh-token persistence goes through the SECURITY DEFINER gateway
+    // (app.store_refresh_token) — the app role has no direct DML on this
+    // FORCE-RLS table.
+    await this.refreshTokens.manager.query(
+      'SELECT app.store_refresh_token($1, $2, $3, $4, $5, $6)',
+      [
+        user.id,
+        user.schoolId,
+        hash,
+        new Date(Date.now() + parseInt(process.env.JWT_REFRESH_TTL ?? '604800', 10) * 1000),
+        meta.ip,
+        meta.userAgent,
+      ],
+    );
     return { accessToken, refreshToken };
   }
 
@@ -195,7 +305,12 @@ export interface RequestMeta {
 
 export function requestMeta(req: Request): RequestMeta {
   return {
-    ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? req.ip ?? null,
+    // Express req.ip respects the `trust proxy` setting: when TRUST_PROXY=true
+    // it derives the client address from x-forwarded-for (as set by the TLS
+    // proxy); otherwise it uses the socket address. We never trust the
+    // x-forwarded-for header directly, so audit IPs and throttling cannot be
+    // spoofed from outside the proxy.
+    ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
   };
 }

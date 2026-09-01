@@ -56,6 +56,14 @@ export class UsersService {
       throw new AppException(ErrorCodes.CONFLICT, 'A user with this email already exists.', HttpStatus.CONFLICT);
     }
 
+    // Role ceiling: an actor may never create users above their own rank.
+    if (!this.canAssignRole(actor.role, dto.role)) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        `Role ${dto.role} cannot be assigned by a ${actor.role}.`, HttpStatus.FORBIDDEN,
+      );
+    }
+
     const schoolId = actor.role === RoleName.SUPER_ADMIN ? (dto.schoolId ?? null) : actor.schoolId;
     if (actor.role !== RoleName.SUPER_ADMIN && dto.schoolId && dto.schoolId !== actor.schoolId) {
       throw new AppException(ErrorCodes.TENANT_ACCESS_DENIED, 'You can only create users for your own school.', HttpStatus.FORBIDDEN);
@@ -89,7 +97,25 @@ export class UsersService {
     if (!user) throw new AppException(ErrorCodes.NOT_FOUND, 'User not found.', HttpStatus.NOT_FOUND);
     this.assertTenant(actor, user);
 
-    if (dto.role) user.role = dto.role;
+    const previousRole = user.role;
+
+    // Role ceiling on promotion/demotion + no self-role changes.
+    if (dto.role) {
+      if (user.id === actor.id) {
+        throw new AppException(ErrorCodes.FORBIDDEN, 'You cannot change your own role.', HttpStatus.FORBIDDEN);
+      }
+      if (!this.canAssignRole(actor.role, dto.role)) {
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          `Role ${dto.role} cannot be assigned by a ${actor.role}.`, HttpStatus.FORBIDDEN,
+        );
+      }
+      // Only a SUPER_ADMIN may modify another SUPER_ADMIN's account.
+      if (user.role === RoleName.SUPER_ADMIN && actor.role !== RoleName.SUPER_ADMIN) {
+        throw new AppException(ErrorCodes.FORBIDDEN, 'You cannot modify a SUPER_ADMIN account.', HttpStatus.FORBIDDEN);
+      }
+      user.role = dto.role;
+    }
     if (dto.firstName !== undefined) user.firstName = dto.firstName;
     if (dto.lastName !== undefined) user.lastName = dto.lastName;
     if (dto.phone !== undefined) user.phone = dto.phone;
@@ -102,7 +128,7 @@ export class UsersService {
       schoolId: saved.schoolId,
       entityType: 'user',
       entityId: saved.id,
-      oldValue: { role: user.role },
+      oldValue: { role: previousRole },
       newValue: { role: saved.role },
       ...meta,
     });
@@ -136,6 +162,27 @@ export class UsersService {
     if (target.schoolId !== actor.schoolId) {
       throw new AppException(ErrorCodes.TENANT_ACCESS_DENIED, 'This resource belongs to another school.', HttpStatus.FORBIDDEN);
     }
+  }
+
+  /**
+   * Role-assignment ceiling. Only SUPER_ADMIN may assign SUPER_ADMIN; every
+   * other actor may only assign roles strictly below their own rank. This
+   * closes the privilege-escalation path where any users.create/users.update
+   * holder could mint a SUPER_ADMIN.
+   */
+  private canAssignRole(actorRole: RoleName, targetRole: RoleName): boolean {
+    if (actorRole === RoleName.SUPER_ADMIN) return true;
+    const hierarchy: Record<string, number> = {
+      [RoleName.SUPER_ADMIN]: 5,
+      [RoleName.SCHOOL_OWNER]: 4,
+      [RoleName.SCHOOL_ADMIN]: 3,
+      [RoleName.HR_ADMIN]: 2,
+      [RoleName.PRINCIPAL]: 2,
+      [RoleName.VICE_PRINCIPAL]: 1,
+      [RoleName.TEACHER]: 0,
+      [RoleName.STAFF]: 0,
+    };
+    return (hierarchy[targetRole] ?? 0) < (hierarchy[actorRole] ?? 0);
   }
 
   private toDto(u: User): Record<string, unknown> {

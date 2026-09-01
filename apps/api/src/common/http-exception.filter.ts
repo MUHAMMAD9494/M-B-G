@@ -9,6 +9,7 @@ import {
 import { Response } from 'express';
 import { AppException } from './app-exception';
 import { ErrorCodes } from './error-codes';
+import { redactSensitiveString } from './log-sanitizer';
 
 interface ErrorBody {
   code: string;
@@ -49,6 +50,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : status === HttpStatus.FORBIDDEN ? ErrorCodes.FORBIDDEN
         : status === HttpStatus.NOT_FOUND ? ErrorCodes.NOT_FOUND
         : status === HttpStatus.TOO_MANY_REQUESTS ? ErrorCodes.RATE_LIMITED
+        : status === HttpStatus.BAD_REQUEST ? ErrorCodes.VALIDATION_FAILED
         : ErrorCodes.INTERNAL_ERROR;
       body = {
         code,
@@ -56,12 +58,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
       };
     } else {
       this.logger.error(
-        exception instanceof Error ? `${exception.message}\n${exception.stack}` : String(exception),
+        redactSensitiveString(
+          exception instanceof Error ? `${exception.message}\n${exception.stack}` : String(exception),
+        ),
       );
     }
 
     if (status >= 500) {
-      this.logger.error(`HTTP ${status} ${body.code}: ${body.message}`);
+      this.logger.error(`HTTP ${status} ${body.code}: ${redactSensitiveString(body.message)}`);
     }
 
     response.status(status).json({ success: false, error: body });

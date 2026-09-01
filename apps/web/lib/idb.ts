@@ -17,23 +17,56 @@ export interface OfflineEvent {
   syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED';
 }
 
+export interface TeacherProfile {
+  id: string;
+  employeeId: string;
+  firstName: string;
+  lastName: string;
+  designation: string | null;
+  department?: string | null;
+  branchId?: string | null;
+  cachedAt?: string;
+}
+
 const DB_NAME = 'nexora-offline';
 const STORE = 'attendance-queue';
+const TEACHER_STORE = 'teacher-profile';
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function db() {
   if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, 1, {
+    dbPromise = openDB(DB_NAME, DB_VERSION, {
       upgrade(database) {
         if (!database.objectStoreNames.contains(STORE)) {
           const store = database.createObjectStore(STORE, { keyPath: 'localEventId' });
           store.createIndex('syncStatus', 'syncStatus');
         }
+        if (!database.objectStoreNames.contains(TEACHER_STORE)) {
+          database.createObjectStore(TEACHER_STORE, { keyPath: 'id' });
+        }
       },
     });
   }
   return dbPromise;
+}
+
+/** Cache the teacher profile so the clock page renders offline. */
+export async function cacheTeacherProfile(profile: TeacherProfile): Promise<void> {
+  const d = await db();
+  await d.put(TEACHER_STORE, { ...profile, cachedAt: new Date().toISOString() });
+}
+
+/** Last cached teacher profile, or null when the store is empty. */
+export async function getCachedTeacherProfile(): Promise<TeacherProfile | null> {
+  const d = await db();
+  // Keep it simple: the clock is bound to one account, so the most recently
+  // cached profile is the right one even if multiple were stored at some point.
+  const all = (await d.getAll(TEACHER_STORE)) as TeacherProfile[];
+  if (all.length === 0) return null;
+  all.sort((a, b) => ((b.cachedAt ?? '') > (a.cachedAt ?? '') ? 1 : -1));
+  return all[0];
 }
 
 export async function enqueueEvent(event: OfflineEvent): Promise<void> {

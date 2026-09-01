@@ -1,0 +1,62 @@
+-- setup_app_role.sql — production runtime role (NON-OWNER, least privilege)
+--
+-- Purpose: the NEXORA application must NEVER connect to the database as the
+-- table owner (owner bypasses RLS). This template creates/enables a
+-- login-capable application role with least-privilege grants, so RLS is
+-- actually enforced for every runtime query.
+--
+-- Usage (as owner/superuser, e.g. via psql or the Supabase SQL editor):
+--   1. Replace :APP_PASSWORD with a strong random password (never committed).
+--   2. Run this script on EVERY database (control plane + each tenant DB).
+--   3. Set APP_DATABASE_URL to postgres://nexora_app:<password>@<host>/<db>.
+--   4. Run migrations as the OWNER role (DATABASE_URL), never as nexora_app.
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nexora_app') THEN
+    CREATE ROLE nexora_app LOGIN PASSWORD :'APP_PASSWORD';
+  ELSE
+    ALTER ROLE nexora_app WITH LOGIN PASSWORD :'APP_PASSWORD';
+  END IF;
+END
+$$;
+
+-- Schema usage + per-table DML grants (must be re-applied after any migration
+-- that creates NEW tables; V2 already granted the existing tenant tables).
+GRANT USAGE ON SCHEMA public TO nexora_app;
+GRANT USAGE ON SCHEMA app TO nexora_app;
+
+GRANT SELECT, INSERT, UPDATE ON
+  schools, branches, users, user_roles, roles, role_permissions, permissions,
+  teachers, attendance_records, attendance_events, audit_logs, geofences,
+  biometric_profiles, devices, refresh_tokens, notification_preferences,
+  system_settings
+TO nexora_app;
+
+-- Sequences (needed if any column uses SERIAL/identity — safe to include).
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO nexora_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA app TO nexora_app;
+
+-- Function used for pre-auth login lookup (SECURITY DEFINER — runs as owner,
+-- but is the ONLY owner-privileged surface the app may use).
+GRANT EXECUTE ON FUNCTION app.find_user_for_auth(text) TO nexora_app;
+
+-- Audit log is append-only for the app role (no UPDATE/DELETE granted).
+
+-- Tenant roles can read/update their OWN school row only (API gates via
+-- /schools/me; the schools controller exposes no tenant list endpoint, and
+-- data-plane routing fields are excluded from all DTO mappings). Column-level
+-- REVOKEs are intentionally NOT used: Postgres column-REVOKE of INSERT blocks
+-- full-row INSERTs (TypeORM inserts all columns incl. DEFAULT).
+
+-- VERIFY (expect: all rows list 't' for relforcerowsecurity on tenant tables):
+--   SELECT relname, relforcerowsecurity FROM pg_class
+--   WHERE relname IN ('users','teachers','attendance_events','attendance_records',
+--   'audit_logs','geofences','biometric_profiles','devices','refresh_tokens',
+--   'notification_preferences','system_settings','branches','user_roles');
+--
+-- VERIFY (expect: app role cannot see other tenants without GUC context):
+--   SET ROLE nexora_app;
+--   SELECT count(*) FROM teachers; -- 0 without set_config('app.school_id', ...)
+--   SELECT app.find_user_for_auth('super@nexora.dev'); -- works (login path)
+--   RESET ROLE;

@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
+// Demo credentials are only rendered when explicitly enabled at build time
+// (NEXT_PUBLIC_SHOW_DEMO_CREDS === 'true'). Never ship them by default.
+const SHOW_DEMO_CREDS = process.env.NEXT_PUBLIC_SHOW_DEMO_CREDS === 'true';
+
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
@@ -17,8 +21,8 @@ export default function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      await login(email.trim(), password);
-      router.replace('/dashboard');
+      const u = await login(email.trim(), password);
+      router.replace(u.role === 'TEACHER' || u.role === 'STAFF' ? '/teacher/attendance' : '/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed.');
     } finally {
@@ -80,9 +84,11 @@ export default function LoginPage() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
 
-          <p className="mt-4 text-xs text-stone-400">
-            Demo: super@nexora.dev / SuperAdmin@2024!
-          </p>
+          {SHOW_DEMO_CREDS && (
+            <p className="mt-4 text-xs text-stone-500">
+              Demo: super@nexora.dev / SuperAdmin@2024!
+            </p>
+          )}
         </form>
       </div>
     </main>

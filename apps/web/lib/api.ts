@@ -1,10 +1,16 @@
-// Nexora Smart Edu — API client (cookie-first auth with Bearer fallback).
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+function resolveApiBase(): string {
+  const url = process.env.NEXT_PUBLIC_API_URL;
+  if (process.env.NODE_ENV === 'production' && !url) {
+    throw new Error(
+      'NEXT_PUBLIC_API_URL must be set when building/running in production.',
+    );
+  }
+  return url ?? 'http://localhost:4000/api/v1';
+}
 
 export interface ApiEnvelope<T> {
   success: boolean;
   data: T;
-  meta?: Record<string, unknown>;
 }
 
 export interface ApiErrorBody {
@@ -34,21 +40,17 @@ async function request<T>(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${resolveApiBase()}${path}`, {
     method,
     headers,
-    credentials: 'include', // carry HTTP-only cookies
+    credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   let payload: ApiEnvelope<T> | ApiErrorBody | null = null;
   const text = await res.text();
   if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = null;
-    }
+    try { payload = JSON.parse(text); } catch { payload = null; }
   }
 
   if (!res.ok) {
@@ -70,3 +72,31 @@ export const api = {
   patch: <T>(path: string, body?: unknown, token?: string) => request<T>('PATCH', path, body, token),
   del: <T>(path: string, token?: string) => request<T>('DELETE', path, undefined, token),
 };
+
+// ---- Device ID (used by attendance check-in) ----
+
+const DEVICE_ID_KEY = 'nexora_device_id';
+
+function generateDeviceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function getDeviceId(): string {
+  if (typeof window === 'undefined') return '';
+  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+  if (existing) return existing;
+  const id = generateDeviceId();
+  try {
+    window.localStorage.setItem(DEVICE_ID_KEY, id);
+  } catch {
+ return id;
+  }
+  return id;
+}

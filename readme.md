@@ -3,6 +3,30 @@
 Multi-tenant teacher attendance & workforce management platform.
 Designed for Nigerian schools, extensible across Africa.
 
+> ⚠️ **PRODUCTION-READINESS WARNING**
+>
+> - **Demo credentials are DEVELOPMENT-ONLY.** `super@nexora.dev`,
+>   `admin@nexorademo.edu.ng`, etc. exist only in seed/dev data. Create fresh,
+>   per-school accounts with strong secrets in production — never reuse demo
+>   creds or dev `.env` values.
+> - **Biometric verification is DEV-ONLY.** The `DevBiometricProvider`
+>   (SHA-256 pseudo-embedding) is a plumbing stand-in, **not** face
+>   recognition, and is **hard-blocked for production** — a real provider must
+>   be integrated and `BIOMETRIC_PROVIDER` set accordingly. See
+>   [docs/biometric.md](docs/biometric.md).
+> - **CI requires committing the working tree.** GitHub Actions runs on the
+>   *committed* tree (not your local working tree). If you validate locally
+>   with uncommitted changes (e.g. `apps/web/next.config.js` vs the committed
+>   `next.config.mjs`), CI will not match — commit first; the mainline will not
+>   push for you.
+> - **Before go-live** read the [deployment runbook](docs/deployment.md)
+>   (DNS/TLS, cookie domain, env matrix, migrations, rollback, monitoring) and
+>   the [Nigeria Data Protection Act 2023 alignment plan](docs/ndpa.md)
+>   (consent, retention, data-subject rights, breach response).
+> - **Rename the generic remote.** If this repo was cloned from a boilerplate
+>   remote (e.g. `origin` pointing at a template), rename/update it to the real
+>   project repository before pushing anything sensitive.
+
 ## Architecture
 
 - **Backend**: NestJS modular monolith, TypeScript, PostgreSQL 16, TypeORM
@@ -32,7 +56,7 @@ cp .env.example .env
 # Edit DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET for production
 
 # 4. Run migration
-psql "postgres://nexora:Nexora@2024!@localhost:5433/nexora" -f apps/api/src/database/migrations/V1__initial_schema.sql
+postgres://<user>:<password>@<host>:<port>/<database>
 
 # 5. Seed demo data
 pnpm db:seed
@@ -46,11 +70,14 @@ Web runs at http://localhost:3000
 
 ## Demo Credentials
 
+> ⚠️ These are placeholder credentials for local development only.
+> Change them before any shared or production environment.
+
 | Role | Email | Password |
 |------|-------|----------|
-| Super Admin | super@nexora.dev | SuperAdmin@2024! |
-| School Admin | admin@nexorademo.edu.ng | Admin@2024! |
-| Teacher | ibrahim@nexorademo.edu.ng | Teacher@2024! |
+| Super Admin | super@nexora.dev | *(set in your `.env`)* |
+| School Admin | admin@nexorademo.edu.ng | *(set in your `.env`)* |
+| Teacher | ibrahim@nexorademo.edu.ng | *(set in your `.env`)* |
 
 ## Commands
 

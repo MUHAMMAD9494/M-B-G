@@ -1,27 +1,81 @@
+# ============================================================
+# Nexora Smart Edu — CI pipeline
+# ============================================================
+# NOTE ON WORKING TREE vs CI:
+# GitHub Actions checks out the COMMITTED tree, not your working tree.
+# If you have uncommitted changes (e.g. apps/web/next.config.js differs from
+# the committed next.config.mjs), CI will NOT match your local run.
+# Commit the working tree before pushing — the mainline will not push for you.
+# The working tree is authoritative; if committed files drift, push a commit
+# that makes the repo match what you validated locally.
+#
+# NOTE ON db:verify:
+# `pnpm db:verify` is owned by the infrastructure/db workstream (it lives with
+# the db scripts the db agent manages). This workflow requires it at the root
+# (`pnpm db:verify`). Do not duplicate that script here — coordinate with the
+# db owner so the script exists before this workflow is expected to pass.
+# ============================================================
+
 name: CI
 
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+
+permissions:
+  contents: read
 
 jobs:
- build-and-test:
+  build-and-test:
+    name: Build & test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Postgres 16 matching infrastructure/docker/docker-compose.dev.yml.
+    # Exposed on 5432 inside the job (the compose file maps host 5433->5432;
+    # that mapping is for local dev only and does not apply in CI).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexora
+          POSTGRES_PASSWORD: ci-nexora-password
+          POSTGRES_DB: nexora
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexora"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://nexora:ci-nexora-password@localhost:5432/nexora
+      # CI-only secrets. Real values come from the platform env (Vercel/Railway)
+      # or a secrets manager — never commit real secrets.
+      JWT_SECRET: ci-only-access-secret-change-me
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-change-me
+      JWT_ACCESS_TTL: '900'
+      JWT_REFRESH_TTL: '604800'
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.4 # must match packageManager in package.json
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
+          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm lint
@@ -29,21 +83,47 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit + Integration tests
+      # DB steps run against the postgres service container BEFORE the tests,
+      # so integration specs exercise the real, migrated schema (RLS, roles,
+      # migrations) rather than mocks.
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      - name: Verify database state
+        run: pnpm db:verify
+
+      - name: Unit + integration tests
         run: pnpm test
-        env:
-          DATABASE_URL: postgres://nexora:test@localhost:5432/nexora_test
-          JWT_SECRET: ci-test-secret-00000000000000000000000000000000
-          JWT_REFRESH_SECRET: ci-test-refresh-secret-000000000000000000000000
-          NODE_ENV: test
 
-      - name: Build API
-        run: pnpm --filter @nexora/api build
-        env:
-          DATABASE_URL: postgres://nexora:test@localhost:5432/nexora_test
-          JWT_SECRET: ci-test-secret-00000000000000000000000000000000
-          JWT_REFRESH_SECRET: ci-test-refresh-secret-000000000000000000000000
-          NODE_ENV: test
+      # Build the FULL workspace with `pnpm -r build` so packages/* are
+      # compiled FIRST (they export dist/index.js) before api/web consume
+      # them. Earlier CI version built only api+web and skipped packages/,
+      # which produced red builds on fresh checkouts. `pnpm -r build` covers
+      # packages -> api -> web in dependency order.
+      - name: Build workspace (packages, api, web)
+        run: pnpm -r build
 
-      - name: Build Web
-        run: pnpm --filter @nexora/web build
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fails the build on high/critical advisories in the production
+      # dependency graph. Dev-only tooling is excluded via --prod.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high

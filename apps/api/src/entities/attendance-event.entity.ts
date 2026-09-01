@@ -83,6 +83,20 @@ export class AttendanceEvent extends BaseEntity {
   @Column({ name: 'verification_method', type: 'varchar', length: 50, nullable: true })
   verificationMethod: string | null;
 
+  /**
+   * Auditable verification state, server-set:
+   * verified_online | verified_local | pending_verification | failed_verification.
+   */
+  @Column({ name: 'verification_state', type: 'varchar', length: 30, default: 'verified_online' })
+  verificationState: string;
+
+  /**
+   * Device-generated idempotency key. Unique per school when present;
+   * replayed syncs reuse it and are deduplicated server-side.
+   */
+  @Column({ name: 'client_event_id', type: 'varchar', length: 100, nullable: true })
+  clientEventId: string | null;
+
   @Column({ name: 'risk_score', type: 'int', default: 0 })
   riskScore: number;
 }

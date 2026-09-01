@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+.git
+.coverage
+*.log
+.env
+.env.*
+!.env.example
+infrastructure/backups/output

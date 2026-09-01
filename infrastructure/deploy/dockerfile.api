@@ -1,0 +1,31 @@
+# NEXORA API — production image (reference, needs build-test before first use)
+# Usage: docker build -f infrastructure/deploy/Dockerfile.api -t nexora-api .
+# The multi-stage build compiles the monorepo inside the image so the runtime
+# stage carries only prod dependencies + dist.
+FROM node:20-slim AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /workspace
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @nexora/api build
+
+FROM node:20-slim AS runtime
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+ENV NODE_ENV=production
+RUN corepack enable
+WORKDIR /workspace
+# Lockfile + workspace manifests for a prod-only install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/package.json packages/package.json 2>/dev/null || true
+RUN pnpm install --prod --frozen-lockfile || pnpm install --prod
+# Built artifacts from the build stage
+COPY --from=build /workspace/apps/api/dist apps/api/dist
+COPY --from=build /workspace/packages packages
+COPY --from=build /workspace/node_modules/.pnpm node_modules/.pnpm
+COPY --from=build /workspace/node_modules node_modules
+EXPOSE 4000
+CMD ["node", "apps/api/dist/main.js"]

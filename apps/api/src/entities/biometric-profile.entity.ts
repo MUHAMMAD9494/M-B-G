@@ -6,8 +6,11 @@ import { User } from './user.entity';
 
 /**
  * Stores only a hashed/encrypted biometric template reference (never raw
- * photos). `embeddingHash` points at encrypted, provider-managed storage; it
- * is never exposed through ordinary API responses.
+ * photos). IMPORTANT (audit-verified): the DEV provider stores SHA-256 of the
+ * enrolled frame with a constant salt — brute-forceable and NOT encryption —
+ * and is hard-blocked in production. The production provider contract must
+ * use server-side keyed hashing or encrypted template storage. The hash is
+ * never exposed through ordinary API responses.
  */
 @Entity('biometric_profiles')
 @Index('idx_biometric_school', ['schoolId'])

@@ -74,3 +74,17 @@ is blocked at the application layer. It must pass before any release.
   fast without them); dev-only defaults are clearly labelled and never used in
   production.
 - `.env` is gitignored; `.env.example` holds placeholder values only.
+
+## R2 hardening deltas
+
+- **Refresh-token persistence is owner-mediated**: all `refresh_tokens` DML goes through
+  SECURITY DEFINER functions (`app.store_refresh_token`, `app.find_refresh_token`,
+  `app.revoke_refresh_tokens`, `app.revoke_refresh_token_by_hash`). The app role has no
+  direct DML grant on the table; FORCE RLS remains active (auth flows run before the
+  tenant GUC exists, so direct access would be denied — by design).
+- **Access-token staleness re-validation**: `JwtAuthGuard` re-checks `users.status/role/school_id`
+  on every request, so disabled accounts and demoted roles lose access immediately.
+- **Offline sync contract**: `POST /attendance/sync` events are derived from the JWT actor —
+  the DTO rejects a client-supplied `teacherId` (whitelist + forbidNonWhitelisted).
+- **Onboarding logs sanitized**: no school names/emails in logs (school id only).
+- **CSRF**: origin guard on all non-GET requests; rejected origins get 403 before validation.

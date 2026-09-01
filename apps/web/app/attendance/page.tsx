@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Shell from '@/components/Shell';
 import { useAuth } from '@/lib/auth';
-import { api } from '@/lib/api';
-import { enqueueEvent, getPendingEvents, pendingCount } from '@/lib/idb';
+import { api, getDeviceId } from '@/lib/api';
+import { syncEngine, type SyncState } from '@/lib/offline/sync-engine';
 
 interface Teacher {
   id: string;
@@ -12,32 +12,55 @@ interface Teacher {
   firstName: string;
   lastName: string;
   designation: string | null;
+  email?: string;
+}
+
+/** Fetch rejects with a TypeError when the network is unreachable. */
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError;
+}
+
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
 export default function AttendancePage() {
   const { token, user } = useAuth();
   const [teacher, setTeacher] = useState<Teacher | null>(null);
-  const [pending, setPending] = useState(0);
+  const [sync, setSync] = useState<SyncState>(syncEngine.getState());
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Subscribe to the shared offline sync engine (same queue as the mobile app).
   useEffect(() => {
-    // Fetch the teacher profile linked to the current user account.
+    const unsub = syncEngine.subscribe(setSync);
+    return unsub;
+  }, []);
+
+  const loadTeacher = useCallback(() => {
+    if (!user?.email) return;
     api
-      .get<{ data: Teacher[] }>('/teachers?search=' + encodeURIComponent(user?.email ?? ''), token ?? undefined)
+      .get<{ data: Teacher[] }>(
+        '/teachers?search=' + encodeURIComponent(user.email),
+        token ?? undefined,
+      )
       .then((r) => {
-        const match = r.data.find(
-          (t) => (t as unknown as { email?: string }).email === user?.email,
-        );
+        const match = r.data.find((t) => t.email === user.email);
         if (match) setTeacher(match);
       })
       .catch(() => setError('Could not load your teacher profile.'));
   }, [token, user]);
 
   useEffect(() => {
-    pendingCount().then(setPending);
-  }, []);
+    loadTeacher();
+  }, [loadTeacher]);
+
+  useEffect(() => {
+    const onOnline = () => loadTeacher();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [loadTeacher]);
 
   function getPosition(): Promise<{ latitude: number; longitude: number; accuracy: number }> {
     return new Promise((resolve, reject) => {
@@ -64,7 +87,33 @@ export default function AttendancePage() {
     setBusy(true);
     try {
       const pos = await getPosition();
-      const payload = {
+      const deviceId = getDeviceId();
+      const baseEvent = {
+        attendanceType: type,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        accuracy: pos.accuracy,
+        deviceId,
+        verificationMethod: 'gps_geofence',
+      };
+
+      // Try real-time first; on network failure, queue for offline sync via the
+      // shared sync engine (which handles marking SYNCED/FAILED per event).
+      if (!isOffline()) {
+        try {
+          await api.post('/attendance/check-in', baseEvent, token ?? undefined);
+          setStatus(`${type === 'CHECK_IN' ? 'Checked in' : 'Checked out'} successfully.`);
+          return;
+        } catch (err) {
+          if (!isNetworkError(err)) {
+            setError(err instanceof Error ? err.message : 'Server rejected the check-in.');
+            return;
+          }
+          // Network failure — fall through and queue for offline sync.
+        }
+      }
+
+      await syncEngine.enqueue({
         localEventId: crypto.randomUUID(),
         teacherId: teacher.id,
         attendanceType: type,
@@ -72,30 +121,10 @@ export default function AttendancePage() {
         latitude: pos.latitude,
         longitude: pos.longitude,
         accuracy: pos.accuracy,
-        deviceId: null,
+        deviceId,
         verificationMethod: 'gps_geofence',
-      };
-
-      // Try real-time first; on network failure, queue for offline sync.
-      try {
-        await api.post('/attendance/check-in', {
-          attendanceType: type,
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracy: pos.accuracy,
-          verificationMethod: 'gps_geofence',
-        }, token ?? undefined);
-        setStatus(`${type === 'CHECK_IN' ? 'Checked in' : 'Checked out'} successfully.`);
-      } catch (err) {
-        // Offline or rejected — persist locally and surface a clear message.
-        await enqueueEvent(payload as never);
-        setPending(await pendingCount());
-        setStatus(
-          `Saved offline (will sync when online). ${
-            err instanceof Error ? err.message : ''
-          }`,
-        );
-      }
+      });
+      setStatus('Saved offline — will sync when back online.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to get location.');
     } finally {
@@ -104,26 +133,10 @@ export default function AttendancePage() {
   }
 
   async function syncNow() {
-    const events = await getPendingEvents();
-    if (events.length === 0) {
-      setStatus('Nothing to sync.');
-      return;
-    }
-    setBusy(true);
     setError(null);
-    try {
-      const res = await api.post<{ results: { localEventId: string; status: string }[] }>(
-        '/attendance/sync',
-        { events: events.map((e) => ({ ...e })) },
-        token ?? undefined,
-      );
-      setStatus(`Synced ${res.results.filter((r) => r.status === 'ACCEPTED').length}/${events.length} events.`);
-      setPending(await pendingCount());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync failed.');
-    } finally {
-      setBusy(false);
-    }
+    setStatus(null);
+    const accepted = await syncEngine.flush(token ?? undefined);
+    if (accepted === 0) setStatus('Nothing new synced.');
   }
 
   return (
@@ -134,13 +147,26 @@ export default function AttendancePage() {
             <h1 className="font-display text-2xl text-stone-900">Attendance</h1>
             <p className="text-sm text-stone-500">GPS + geofence verified check-in / check-out.</p>
           </div>
-          <button
-            onClick={syncNow}
-            disabled={busy || pending === 0}
-            className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-100 disabled:opacity-50"
-          >
-            Sync offline ({pending})
-          </button>
+          <div className="flex items-center gap-3">
+            <span
+              role="status"
+              aria-live="polite"
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                sync.online ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
+              }`}
+            >
+              {sync.online ? 'Online' : 'Offline'}
+              {sync.pending > 0 && <span>· {sync.pending} pending</span>}
+              {sync.lastSyncAt && <span>· synced {new Date(sync.lastSyncAt).toLocaleTimeString()}</span>}
+            </span>
+            <button
+              onClick={syncNow}
+              disabled={busy || sync.syncing || sync.pending === 0}
+              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-100 disabled:opacity-50"
+            >
+              {sync.syncing ? 'Syncing…' : `Sync offline (${sync.pending})`}
+            </button>
+          </div>
         </div>
 
         {error && (

@@ -1,6 +1,5 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel%20.json",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install",
-  "buildCommand": "cd apps/web && next build",
-  "outputDirectory": "apps/web/.next"
+  "buildCommand": "pnpm --filter @nexora/web build"
 }

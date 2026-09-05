@@ -17,6 +17,7 @@
     "db:migrate": "pnpm --filter @nexora/api db:migrate",
     "db:migrate:revert": "pnpm --filter @nexora/api db:migrate:revert",
     "db:verify": "pnpm --filter @nexora/api db:verify",
-    "db:seed": "pnpm --filter @nexora/api db:seed"
+    "db:seed": "pnpm --filter @nexora/api db:seed",
+    "start": "pnpm --filter @nexora/api start"
   }
 }

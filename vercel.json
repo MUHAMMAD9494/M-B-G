@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @nexora/web build",
+  "buildCommand": "pnpm --filter @nexora/types --filter @nexora/config --filter @nexora/utils --filter @nexora/validation build && pnpm --filter @nexora/web build",
   "outputDirectory": "apps/web/.next",
   "framework": "nextjs"
 }

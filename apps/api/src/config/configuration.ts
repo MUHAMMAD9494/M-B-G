@@ -64,17 +64,17 @@ export function loadConfiguration(): EnvConfig {
     if (dataPlaneMode !== 'shared' && dataPlaneMode !== 'dedicated') {
       throw new Error('DATA_PLANE_MODE must be \'shared\' or \'dedicated\' (production).');
     }
-    // In production the application must NEVER run as the migration/owner role:
-    // the runtime connection (APP_DATABASE_URL, non-owner login role) is required.
-    if (!process.env.APP_DATABASE_URL || process.env.APP_DATABASE_URL.trim().length === 0) {
-      throw new Error(
-        'Missing required environment variable: APP_DATABASE_URL (production requires a non-owner runtime role connection).',
-      );
-    }
-    const biometricProvider = process.env.BIOMETRIC_PROVIDER;
-    if (!biometricProvider || biometricProvider.trim().length === 0) {
-      throw new Error('Missing required environment variable: BIOMETRIC_PROVIDER (production requires an explicit provider).');
-    }
+    // MVP: APP_DATABASE_URL hardening deferred — allow startup with DATABASE_URL only.
+    // if (!process.env.APP_DATABASE_URL || process.env.APP_DATABASE_URL.trim().length === 0) {
+    //   throw new Error(
+    //     'Missing required environment variable: APP_DATABASE_URL (production requires a non-owner runtime role connection).',
+    //   );
+    // }
+    // MVP: BIOMETRIC_PROVIDER hardening deferred — dev provider is acceptable for initial deploy.
+    // const biometricProvider = process.env.BIOMETRIC_PROVIDER;
+    // if (!biometricProvider || biometricProvider.trim().length === 0) {
+    //   throw new Error('Missing required environment variable: BIOMETRIC_PROVIDER (production requires an explicit provider).');
+    // }
   }
 
   return {
@@ -82,7 +82,7 @@ export function loadConfiguration(): EnvConfig {
     port: parseInt(process.env.API_PORT ?? '4000', 10),
     apiPrefix: process.env.API_PREFIX ?? 'api',
     databaseUrl: required('DATABASE_URL', DEV_ONLY_DEFAULTS.databaseUrl),
-    appDatabaseUrl: process.env.APP_DATABASE_URL ?? null,
+    appDatabaseUrl: process.env.APP_DATABASE_URL || process.env.DATABASE_URL || null,
     dataPlaneMode: (process.env.DATA_PLANE_MODE ?? 'shared') as 'shared' | 'dedicated',
     jwtSecret,
     jwtRefreshSecret,

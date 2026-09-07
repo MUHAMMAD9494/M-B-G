@@ -15,6 +15,15 @@ const nextConfig = {
   // referrer-policy. TLS itself is terminated at Cloudflare/edge.
   async headers() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
+    // CSP connect-src requires an origin, not a full URL with path.
+    // Strip the path so https://host/api/v1 becomes https://host
+    let apiOrigin;
+    try {
+      const parsed = new URL(apiUrl);
+      apiOrigin = parsed.origin;
+    } catch {
+      apiOrigin = apiUrl;
+    }
     return [
       {
         source: '/:path*',
@@ -31,7 +40,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
-              `connect-src 'self' ${apiUrl}`,
+              `connect-src 'self' ${apiOrigin}`,
               "media-src 'self' blob:",
               "frame-ancestors 'none'",
             ].join('; '),

@@ -1,31 +1,24 @@
-// Nexora Smart Edu — server-side auth guard (cookie presence check only).
+// Nexora Smart Edu — server-side middleware.
 //
-// The API signs in with httpOnly cookies named `nse_access` / `nse_refresh`
-// (see apps/api/src/auth/auth.controller.ts). This middleware blocks unauthenticated
-// requests to app routes before any client code runs. It deliberately does NOT
-// verify the JWT — that stays with the API — so a redirect here only means
-// "no session cookie present", which is the correct boundary for a client app.
+// Auth is handled entirely client-side via sessionStorage + Bearer tokens
+// (see apps/web/lib/auth.tsx and apps/web/components/Shell.tsx).
+// The Shell component redirects unauthenticated users to /login.
+//
+// A previous version checked for the `nse_access` cookie here, but that
+// only works when the API and frontend share the same domain (cookies are
+// domain-scoped). In the Vercel + Railway deployment, the API sets cookies
+// on the Railway domain, which the Vercel frontend cannot read.
+//
+// We keep this middleware file for future server-side logic (e.g., i18n
+// redirects, feature flags) but currently pass all requests through.
 import { NextRequest, NextResponse } from 'next/server';
 
-const AUTH_COOKIE = 'nse_access';
-
 export function middleware(req: NextRequest) {
-  if (req.cookies.has(AUTH_COOKIE)) {
-    return NextResponse.next();
-  }
-
-  const { pathname, search } = req.nextUrl;
-  const url = req.nextUrl.clone();
-  url.pathname = '/login';
-  url.search = '';
-  url.searchParams.set('next', pathname + search);
-  return NextResponse.redirect(url);
+  return NextResponse.next();
 }
 
 export const config = {
-  // Only these route prefixes are guarded. Everything else — '/', '/login',
-  // static assets, icons, manifest, sw.js — is implicitly whitelisted because
-  // it never matches.
+  // Match all app routes — currently a pass-through.
   matcher: [
     '/dashboard/:path*',
     '/teachers/:path*',

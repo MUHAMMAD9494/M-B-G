@@ -5,6 +5,7 @@ import { api } from './api';
 import type { AuthUser } from '@nexora/types';
 
 const AUTH_KEY = 'nexora_auth_user';
+const TOKEN_KEY = 'nexora_auth_token';
 
 interface AuthState {
   user: AuthUser | null;
@@ -32,6 +33,19 @@ function restoreUser(): AuthUser | null {
   } catch { return null; }
 }
 
+function persistToken(t: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (t) sessionStorage.setItem(TOKEN_KEY, t);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch { /* quota */ }
+}
+
+function restoreToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -40,15 +54,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Restore from sessionStorage first (synchronous), then verify with /auth/me.
     const cached = restoreUser();
+    const cachedToken = restoreToken();
     if (cached) {
       setUser(cached);
+      setToken(cachedToken);
       setLoading(false);
     }
     // Verify session is still valid
     api
-      .get<AuthUser>('/auth/me')
+      .get<AuthUser>('/auth/me', cachedToken ?? undefined)
       .then((u) => { persistUser(u); setUser(u); })
-      .catch(() => { persistUser(null); setUser(null); })
+      .catch(() => { persistUser(null); persistToken(null); setUser(null); setToken(null); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -58,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { email, password },
     );
     persistUser(res.user);
+    persistToken(res.accessToken);
     setUser(res.user);
     setToken(res.accessToken);
     return res.user;
@@ -65,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     persistUser(null);
+    persistToken(null);
     try {
       await api.post('/auth/logout', {}, token ?? undefined);
     } catch {

@@ -21,7 +21,10 @@ async function bootstrap(): Promise<void> {
   const cfg = loadConfiguration();
   app.set('trust proxy', cfg.trustProxy);
 
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  }));
   app.use(cookieParser());
 
   // Request-ID middleware: every request gets a UUID logged with the

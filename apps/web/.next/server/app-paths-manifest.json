@@ -1,0 +1,17 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/(mobile)/teacher/attendance/page": "app/(mobile)/teacher/attendance/page.js",
+  "/(mobile)/teacher/enroll/page": "app/(mobile)/teacher/enroll/page.js",
+  "/attendance/page": "app/attendance/page.js",
+  "/change-password/page": "app/change-password/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/geofences/page": "app/geofences/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/reports/page": "app/reports/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/teachers/[id]/edit/page": "app/teachers/[id]/edit/page.js",
+  "/teachers/new/page": "app/teachers/new/page.js",
+  "/teachers/page": "app/teachers/page.js",
+  "/users/page": "app/users/page.js"
+}

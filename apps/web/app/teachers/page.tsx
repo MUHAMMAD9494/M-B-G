@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import Shell from '@/components/Shell';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
@@ -17,12 +18,15 @@ interface Teacher {
 }
 
 export default function TeachersPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
 
-  useEffect(() => {
+  const isAdmin = user?.role && !['TEACHER', 'STAFF'].includes(user.role);
+
+  const loadTeachers = useCallback(() => {
     api
       .get<{ data: Teacher[]; meta: { total: number } }>('/teachers?limit=100', token ?? undefined)
       .then((r) => setTeachers(r.data))
@@ -30,12 +34,45 @@ export default function TeachersPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  useEffect(() => {
+    loadTeachers();
+  }, [loadTeachers]);
+
+  async function toggleStatus(t: Teacher) {
+    setToggling(t.id);
+    try {
+      const newStatus = t.employmentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      await api.patch(
+        `/teachers/${t.id}`,
+        { employmentStatus: newStatus },
+        token ?? undefined,
+      );
+      setTeachers((prev) =>
+        prev.map((x) => (x.id === t.id ? { ...x, employmentStatus: newStatus } : x)),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Status change failed.');
+    } finally {
+      setToggling(null);
+    }
+  }
+
   return (
     <Shell>
       <div className="mx-auto max-w-container">
-        <div className="mb-6">
-          <h1 className="font-display text-2xl text-stone-900">Teachers</h1>
-          <p className="text-sm text-stone-500">Your teaching workforce and assignments.</p>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-2xl text-stone-900">Teachers</h1>
+            <p className="text-sm text-stone-500">Your teaching workforce and assignments.</p>
+          </div>
+          {isAdmin && (
+            <Link
+              href="/teachers/form"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hover"
+            >
+              Add Teacher
+            </Link>
+          )}
         </div>
 
         {error && (
@@ -46,7 +83,7 @@ export default function TeachersPage() {
           <p className="text-sm text-stone-400">Loading…</p>
         ) : teachers.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-stone-300 p-10 text-center text-sm text-stone-400">
-            No teachers yet. Teachers appear here once added by an administrator.
+            No teachers yet. Click &ldquo;Add Teacher&rdquo; to register your first teacher.
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
@@ -57,6 +94,7 @@ export default function TeachersPage() {
                   <th className="hidden px-4 py-3 sm:table-cell">Employee ID</th>
                   <th className="hidden px-4 py-3 md:table-cell">Department</th>
                   <th className="px-4 py-3">Status</th>
+                  {isAdmin && <th className="px-4 py-3">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -83,6 +121,25 @@ export default function TeachersPage() {
                         {t.employmentStatus}
                       </span>
                     </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <Link
+                            href={`/teachers/form?edit=${t.id}`}
+                            className="text-xs font-medium text-accent hover:underline"
+                          >
+                            Edit
+                          </Link>
+                          <button
+                            onClick={() => toggleStatus(t)}
+                            disabled={toggling === t.id}
+                            className="text-xs font-medium text-stone-500 hover:text-stone-700 disabled:opacity-50"
+                          >
+                            {t.employmentStatus === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

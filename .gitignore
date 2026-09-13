@@ -37,3 +37,5 @@ infrastructure/backups/output/
 infrastructure/backups/archive/
 # Phantom/malformed filenames
 ql.gz*
+
+Usersuser.openclaw-autoclawworkspace.openclawtmp.git-creds

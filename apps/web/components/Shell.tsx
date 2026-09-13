@@ -9,13 +9,16 @@ const AUTH_KEY = 'nexora_auth_user';
 function hasCachedSession(): boolean {
   try { return !!sessionStorage.getItem(AUTH_KEY); } catch { return false; }
 }
-import { LayoutDashboard, CalendarCheck, Users, BarChart3, ScanFace, Smartphone } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, BarChart3, ScanFace, Smartphone, Settings, Shield, MapPin } from 'lucide-react';
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/attendance', label: 'Attendance', icon: CalendarCheck },
+  { href: '/attendance/admin', label: 'Attendance', icon: CalendarCheck },
   { href: '/teachers', label: 'Teachers', icon: Users },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/geofences', label: 'Geofences', icon: MapPin },
+  { href: '/settings', label: 'School Settings', icon: Settings },
+  { href: '/users', label: 'Users', icon: Shield },
 ];
 
 const TEACHER_NAV = [
@@ -25,9 +28,9 @@ const TEACHER_NAV = [
 
 const MOBILE_BOTTOM_NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/teacher/attendance', label: 'Clock', icon: CalendarCheck },
-  { href: '/teacher/enroll', label: 'Enroll', icon: ScanFace },
-  { href: '/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/attendance/admin', label: 'Attendance', icon: CalendarCheck },
+  { href: '/teachers', label: 'Teachers', icon: Users },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 const TEACHER_BOTTOM_NAV = [
@@ -98,12 +101,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             {user.firstName} {user.lastName}
           </p>
           <p className="truncate text-xs text-stone-500">{user.email}</p>
-          <button
-            onClick={() => logout().then(() => router.replace('/login'))}
-            className="mt-3 w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 transition hover:bg-stone-100"
-          >
-            Sign out
-          </button>
+          <div className="mt-3 space-y-2">
+            <Link
+              href="/profile/change-password"
+              className="block w-full rounded-lg border border-stone-200 px-3 py-2 text-center text-xs font-medium text-stone-600 transition hover:bg-stone-100"
+            >
+              Change Password
+            </Link>
+            <button
+              onClick={() => logout().then(() => router.replace('/login'))}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-xs font-medium text-stone-600 transition hover:bg-stone-100"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 

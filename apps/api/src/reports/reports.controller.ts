@@ -15,15 +15,15 @@ export class ReportsController {
   @Get('daily')
   @Permissions('reports.read')
   @ApiOperation({ summary: 'Daily attendance report' })
-  async daily(@CurrentUser() actor: AuthUser, @Query('date') date: string) {
-    return this.reports.dailyReport(actor, date);
+  async daily(@CurrentUser() actor: AuthUser, @Query('date') date?: string) {
+    return this.reports.dailyReport(actor, date ?? new Date().toISOString().split('T')[0]);
   }
 
   @Get('weekly')
   @Permissions('reports.read')
   @ApiOperation({ summary: 'Weekly attendance report' })
-  async weekly(@CurrentUser() actor: AuthUser, @Query('date') date: string) {
-    return this.reports.weeklyReport(actor, date);
+  async weekly(@CurrentUser() actor: AuthUser, @Query('date') date?: string) {
+    return this.reports.weeklyReport(actor, date ?? new Date().toISOString().split('T')[0]);
   }
 
   @Get('monthly')
@@ -31,10 +31,11 @@ export class ReportsController {
   @ApiOperation({ summary: 'Monthly attendance report' })
   async monthly(
     @CurrentUser() actor: AuthUser,
-    @Query('year') year: string,
-    @Query('month') month: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
   ) {
-    return this.reports.monthlyReport(actor, parseInt(year, 10), parseInt(month, 10));
+    const now = new Date();
+    return this.reports.monthlyReport(actor, parseInt(year ?? String(now.getFullYear()), 10), parseInt(month ?? String(now.getMonth() + 1), 10));
   }
 
   @Get('teacher/:teacherId/history')

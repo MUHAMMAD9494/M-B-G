@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import Shell from '@/components/Shell';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
@@ -18,7 +19,7 @@ const CARDS: { key: keyof Summary; label: string; tone: string }[] = [
   { key: 'PRESENT', label: 'Present', tone: 'text-success' },
   { key: 'LATE', label: 'Late', tone: 'text-warning' },
   { key: 'EARLY', label: 'Early departure', tone: 'text-warning' },
-  { key: 'ABSENT', label: 'Absent', tone: 'text-stone-500' },
+  { key: 'ABSENT', label: 'Absent / No record', tone: 'text-stone-500' },
 ];
 
 export default function DashboardPage() {
@@ -48,6 +49,7 @@ export default function DashboardPage() {
         {!summary && !error ? (
           <p className="text-sm text-stone-400">Loading summary…</p>
         ) : summary ? (
+          <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {CARDS.map((c) => (
               <div key={c.key} className="rounded-2xl border border-stone-200 bg-white p-5">
@@ -56,6 +58,15 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+          <div className="mt-6">
+            <Link
+              href="/attendance/admin"
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent-hover"
+            >
+              View Attendance Records →
+            </Link>
+          </div>
+          </>
         ) : null}
       </div>
     </Shell>

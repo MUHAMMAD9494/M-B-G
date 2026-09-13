@@ -88,7 +88,7 @@ export function loadConfiguration(): EnvConfig {
     jwtRefreshSecret,
     jwtAccessTtl: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10),
     jwtRefreshTtl: parseInt(process.env.JWT_REFRESH_TTL ?? '604800', 10),
-    corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
+    corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000,https://m-b-g-api.vercel.app,https://m-b-g-851f4k7ey-nexora-systerm-iot.vercel.app',
     trustProxy: (process.env.TRUST_PROXY ?? 'false') === 'true',
     biometricProvider: process.env.BIOMETRIC_PROVIDER ?? 'dev',
     storageProvider: process.env.STORAGE_PROVIDER ?? 'local',
